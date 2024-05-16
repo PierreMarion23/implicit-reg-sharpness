@@ -1,4 +1,4 @@
-# Implicit bias of deep linear networks for regression towards flat minima
+# Implicit regularization of deep linear networks for regression towards flat minima
 
 ## Environment
 

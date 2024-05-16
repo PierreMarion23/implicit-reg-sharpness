@@ -1,4 +1,4 @@
-name: implicit-bias-sharpness
+name: implicit-reg-sharpness
 channels:
   - conda-forge
   - defaults
