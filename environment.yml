@@ -1,0 +1,10 @@
+name: implicit-bias-sharpness
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.9.19
+  - jax=0.4.27
+  - matplotlib=3.8.4
+  - pandas=2.2.2
+  - seaborn=0.13.2
