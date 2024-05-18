@@ -1,4 +1,4 @@
-# Implicit regularization of deep linear networks for regression towards flat minima
+# Deep linear networks for regression are implicitly regularized towards flat minima
 
 ## Environment
 
