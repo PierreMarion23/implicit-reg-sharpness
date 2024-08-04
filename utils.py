@@ -12,15 +12,14 @@ def generate_data(n, d, key):
     key, subkey = random.split(key)
     X = random.normal(subkey, (n, d))
     key, subkey = random.split(key)
-    w_true = random.normal(subkey, (d,))
+    Xtest = random.normal(subkey, (n, d))
     key, subkey = random.split(key)
-    noise = random.normal(subkey, (n,))
-    y = X @ w_true + noise
-    w_star = jnp.linalg.inv(X.T @ X) @ X.T @ y
-    norm_factor = jnp.linalg.norm(w_star)
-    w_star = w_star / norm_factor
-    y = y / norm_factor
-    return (X, y, w_star)
+    w_true = random.normal(subkey, (d,))
+    norm_factor = jnp.linalg.norm(w_true)
+    w_star = w_true / norm_factor
+    y = X @ w_star
+    ytest = Xtest @ w_star
+    return (X, y, Xtest, ytest, w_star, norm_factor)
 
 
 # from https://jax.readthedocs.io/en/latest/notebooks/autodiff_cookbook.html#hessian-vector-products-using-both-forward-and-reverse-mode
@@ -31,7 +30,7 @@ def hessian_vector_product(f, primals, tangents):
 @partial(jax.jit, static_argnames=["unravel_fn", "loss_fn"])
 def param_hessian_vector_product(vec, args, params, unravel_fn, loss_fn):
     delta = unravel_fn(vec)
-    f = lambda p: loss_fn(p, args)
+    f = lambda p: loss_fn(p, args)[0]
     return jax.flatten_util.ravel_pytree(
         hessian_vector_product(f, (params,), (delta,))
     )[0]
@@ -53,5 +52,5 @@ def largest_eigenvalue(args, params, dim, key, n_iter, unravel_fn, loss_fn):
 
 @partial(jax.jit, static_argnames=["loss_fn"])
 def update(params, args, step_size, loss_fn):
-    loss, grads = value_and_grad(loss_fn)(params, args)
-    return [p - step_size * dp for p, dp in zip(params, grads)], loss, grads
+    (loss, test_loss), grads = value_and_grad(loss_fn, has_aux=True)(params, args)
+    return [p - step_size * dp for p, dp in zip(params, grads)], loss, test_loss, grads

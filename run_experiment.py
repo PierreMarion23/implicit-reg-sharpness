@@ -1,10 +1,13 @@
 import os
+import pickle
 
 import jax.numpy as jnp
 import jax.flatten_util
 from jax import random
 from matplotlib import pyplot as plt
+import numpy as np
 import pandas as pd
+from scipy import stats
 import seaborn as sns
 
 sns.set_theme(style="darkgrid")
@@ -45,6 +48,8 @@ def run_full_experiment(
         "final_sharpness": [],
         "init_distance": [],
         "final_distance": [],
+        "final_train_loss": [],
+        "final_test_loss": [],
     }
 
     idx_config = 0
@@ -76,7 +81,9 @@ def run_full_experiment(
                 )
                 result["init_sharpness"].append(eigv)
                 for step in range(num_steps):
-                    params, _, _ = update(params, args_loss_fn, step_size, loss_fn)
+                    params, train_loss, test_loss, _ = update(
+                        params, args_loss_fn, step_size, loss_fn
+                    )
                     if step % compute_sharpness_every_step == 0:
                         eigv, _ = largest_eigenvalue(
                             args_loss_fn,
@@ -91,6 +98,8 @@ def run_full_experiment(
                 result["final_distance"].append(
                     square_distance_to_minimizer_fn(params, args_distance_minimizer_fn)
                 )
+                result["final_train_loss"].append(train_loss)
+                result["final_test_loss"].append(test_loss)
         idx_config += 1
 
     df = pd.DataFrame(result)
@@ -99,6 +108,8 @@ def run_full_experiment(
     df["final_sharpness"] = df["final_sharpness"].astype(float)
     df["init_distance"] = df["init_distance"].astype(float)
     df["final_distance"] = df["final_distance"].astype(float)
+    df["final_train_loss"] = df["final_train_loss"].astype(float)
+    df["final_test_loss"] = df["final_test_loss"].astype(float)
     df.to_pickle("logs/exp_{}_df.pkl".format(name))
 
 
@@ -109,18 +120,15 @@ def make_plots_full_experiment(
 
     df = pd.read_pickle("logs/exp_{}_df.pkl".format(name))
 
-    palette = sns.color_palette("flare", 5)
+    palette = sns.color_palette("flare", 3)
     xmin = min(scales)
     xmax = max(scales)
 
-    df_without_small_lr = df[df["step_size"] < 0.09]
-    df_without_small_lr["step_size"] = "l. rate: " + df_without_small_lr[
-        "step_size"
-    ].astype(str)
+    df["step_size"] = "l. rate: " + df["step_size"].astype(str)
 
     plt.figure(figsize=(7, 5))
     sns.lineplot(
-        df_without_small_lr,
+        df,
         x="init_scale",
         y="final_sharpness",
         hue="step_size",
@@ -129,7 +137,7 @@ def make_plots_full_experiment(
         markers=True,
         dashes=False,
     )
-    for k, step_size in enumerate(step_sizes[:-2]):
+    for k, step_size in enumerate(step_sizes):
         plt.hlines(
             [2 / step_size],
             xmin=xmin,
@@ -160,7 +168,7 @@ def make_plots_full_experiment(
     plt.figure(figsize=(7, 5))
     sns.lineplot(df, x="init_scale", y="init_sharpness", label="Initialization")
     sns.lineplot(
-        df_without_small_lr,
+        df,
         x="init_scale",
         y="final_sharpness",
         hue="step_size",
@@ -169,29 +177,6 @@ def make_plots_full_experiment(
         markers=True,
         dashes=False,
     )
-    for k, step_size in enumerate(step_sizes[:-2]):
-        plt.hlines(
-            [2 / step_size],
-            xmin=xmin,
-            xmax=xmax,
-            colors=palette[k],
-            linestyles="dashed",
-        )
-    plt.hlines(
-        [lower_bound_sharpness_minimizers],
-        xmin=xmin,
-        xmax=xmax,
-        colors="black",
-        linestyles="dotted",
-    )
-    if upper_bound_sharpness_mlp:
-        plt.hlines(
-            [upper_bound_sharpness_mlp],
-            xmin=xmin,
-            xmax=xmax,
-            colors="black",
-            linestyles="dotted",
-        )
     plt.legend(loc="lower right")
     plt.xlabel("Scale of initialization")
     plt.ylabel("Sharpness")
@@ -199,14 +184,11 @@ def make_plots_full_experiment(
     plt.ylim([0.1, 3 * 10**4])
     plt.savefig("figures/sharpness_{}_log.png".format(name), bbox_inches="tight")
 
-    df["step_size"] = "l. rate: " + df["step_size"].astype(str)
-
     plt.figure(figsize=(7, 5))
-    sns.lineplot(df, x="init_scale", y="init_distance", label="Initialization")
     sns.lineplot(
         df,
         x="init_scale",
-        y="final_distance",
+        y="final_train_loss",
         hue="step_size",
         palette=palette,
         style="step_size",
@@ -216,8 +198,76 @@ def make_plots_full_experiment(
     plt.yscale("log")
     plt.legend()
     plt.xlabel("Scale of initialization")
-    plt.ylabel("Squared distance to optimal regressor")
-    plt.savefig("figures/squared_distance_{}.png".format(name), bbox_inches="tight")
+    plt.ylabel("Final training loss")
+    plt.savefig("figures/training_loss_{}.png".format(name), bbox_inches="tight")
+
+    plt.figure(figsize=(7, 5))
+    sns.lineplot(
+        df,
+        x="init_scale",
+        y="final_test_loss",
+        hue="step_size",
+        palette=palette,
+        style="step_size",
+        markers=True,
+        dashes=False,
+    )
+    plt.yscale("log")
+    plt.legend()
+    plt.xlabel("Scale of initialization")
+    plt.ylabel("Final test loss")
+    plt.savefig("figures/test_loss_{}.png".format(name), bbox_inches="tight")
+
+    df["generalization_gap"] = df["final_test_loss"] - df["final_train_loss"]
+    plt.figure(figsize=(7, 5))
+    sns.lineplot(
+        df,
+        x="init_scale",
+        y="generalization_gap",
+        hue="step_size",
+        palette=palette,
+        style="step_size",
+        markers=True,
+        dashes=False,
+    )
+    plt.yscale("log")
+    plt.legend()
+    plt.xlabel("Scale of initialization")
+    plt.ylabel("Generalization gap")
+    plt.savefig("figures/generalization_gap_{}.png".format(name), bbox_inches="tight")
+
+    plt.figure(figsize=(7, 5))
+    ax = plt.gca()
+    df["log_final_sharpness"] = np.log10(df["final_sharpness"])
+    df["log_generalization_gap"] = np.log10(df["generalization_gap"])
+    only_one_lr_df = df[df["step_size"] == "l. rate: 0.001"].dropna()
+    sns.regplot(
+        only_one_lr_df,
+        x="log_final_sharpness",
+        y="log_generalization_gap",
+        order=1,
+    )
+    plt.xlabel("Sharpness after training")
+    plt.ylabel("Generalization gap")
+    formatter = lambda x, pos: f"{int(10 ** x):g}"
+    ax.get_xaxis().set_major_formatter(formatter)
+    formatter = lambda x, pos: f"{np.round(10 ** x, 2):g}"
+    ax.get_yaxis().set_major_formatter(formatter)
+    plt.savefig("figures/scatter_plot_{}.png".format(name), bbox_inches="tight")
+
+    lin_reg_res = stats.linregress(
+        np.array(only_one_lr_df["log_final_sharpness"]),
+        np.array(only_one_lr_df["log_generalization_gap"]),
+        alternative="less",
+    )
+    print("slope: {}".format(lin_reg_res.slope))
+    print("intercept: {}".format(lin_reg_res.intercept))
+    print("rvalue squared: {}".format(lin_reg_res.rvalue**2))
+    print("pvalue: {}".format(lin_reg_res.pvalue))
+    print("stderr: {}".format(lin_reg_res.stderr))
+    print("intercept stderr: {}".format(lin_reg_res.intercept_stderr))
+    with open("logs/lin_reg_{}.pkl".format(name), "wb") as file:
+        pickle.dump(lin_reg_res, file)
 
     df["failed"] = df["final_sharpness"].isna()
     plt.figure(figsize=(7, 5))
@@ -360,14 +410,14 @@ def run_sub_experiment(
 
 
 if __name__ == "__main__":  # Around one hour in total.
-    n = 50
-    d = 5
-    L = 10
+    n = 15
+    d = 20
+    L = 5
 
     key = random.PRNGKey(0)
     key, subkey = random.split(key)
 
-    X, y, w_star = generate_data(n, d, subkey)
+    X, y, Xtest, ytest, w_star, norm_factor = generate_data(n, d, subkey)
     lambd = jnp.real(min(jnp.linalg.eigvals(X.T @ X / n)))
     Lambd = jnp.real(min(jnp.linalg.eigvals(X.T @ X / n)))
     lower_bound_sharpness_minimizers = 2 * L * lambd
@@ -381,106 +431,32 @@ if __name__ == "__main__":  # Around one hour in total.
     params = init_mlp(d, L, 0.25, subkey)
     flat_params, unravel_fn = jax.flatten_util.ravel_pytree(params)
     dim = flat_params.shape[0]
-    step_sizes = [0.005, 0.02, 0.07, 0.1, 0.2]
-    num_stepss = [40_000, 10_000, 4_000, 4_000, 2_000]
-    repss = [20, 20, 20, 20, 80]
-    scales = jnp.linspace(0.25, 0.6, 10)
-    args_loss_fn = (X, y)
+    step_sizes = [0.001, 0.002, 0.004]
+    num_stepss = [20_000, 10_000, 5_000]
+    repss = [100, 20, 20]
+    scales = jnp.linspace(0.07, 0.36, 9)
+    args_loss_fn = (X, y, Xtest, ytest)
     args_distance_minimizer_fn = (w_star,)
     key, subkey = random.split(key)
-    run_full_experiment(
-        d,
-        L,
-        dim,
-        args_loss_fn,
-        args_distance_minimizer_fn,
-        step_sizes,
-        num_stepss,
-        repss,
-        scales,
-        init_mlp,
-        loss_fn_mlp,
-        square_distance_to_minimizer_mlp,
-        "mlp",
-        subkey,
-    )
+    # run_full_experiment(
+    #     d,
+    #     L,
+    #     dim,
+    #     args_loss_fn,
+    #     args_distance_minimizer_fn,
+    #     step_sizes,
+    #     num_stepss,
+    #     repss,
+    #     scales,
+    #     init_mlp,
+    #     loss_fn_mlp,
+    #     square_distance_to_minimizer_mlp,
+    #     "mlp_overparam_final",
+    #     subkey,
+    # )
     make_plots_full_experiment(
-        "mlp", scales, lower_bound_sharpness_minimizers, upper_bound_sharpness_mlp
-    )
-
-    step_sizes = [0.02, 0.1]
-    scales = [0.3, 0.3]
-    num_stepss = [400, 400]
-    palette_idxs = [1, 3]
-    key, subkey = random.split(key)
-    run_sub_experiment(
-        d,
-        L,
-        dim,
-        args_loss_fn,
-        args_distance_minimizer_fn,
-        step_sizes,
+        "mlp_overparam_final",
         scales,
-        num_stepss,
-        palette_idxs,
-        init_mlp,
-        loss_fn_mlp,
-        square_distance_to_minimizer_mlp,
-        "mlp",
-        subkey,
-    )
-
-    # Resnets initialization
-    key, subkey = random.split(key)
-    params = init_resnet(d, L, 0.25, subkey)
-    flat_params, unravel_fn = jax.flatten_util.ravel_pytree(params)
-    dim = flat_params.shape[0]
-    key, subkey = random.split(key)
-    w = random.normal(subkey, (d,))
-    w = w / jnp.linalg.norm(w)
-    step_sizes = [0.005, 0.02, 0.07, 0.1, 0.2]
-    num_stepss = [4_000, 4_000, 4_000, 4_000, 4_000]
-    repss = [20, 20, 20, 20, 20]
-    scales = jnp.linspace(0.0, 1.7, 10)
-    args_loss_fn = (X, y, w)
-    args_distance_minimizer_fn = (w_star, w)
-    key, subkey = random.split(key)
-    run_full_experiment(
-        d,
-        L,
-        dim,
-        args_loss_fn,
-        args_distance_minimizer_fn,
-        step_sizes,
-        num_stepss,
-        repss,
-        scales,
-        init_resnet,
-        loss_fn_resnet,
-        square_distance_to_minimizer_resnet,
-        "resnet",
-        subkey,
-    )
-    make_plots_full_experiment("resnet", scales, lower_bound_sharpness_minimizers)
-
-    step_sizes = [0.02, 0.1]
-    scales = [0.5, 0.5]
-    num_stepss = [400, 400]
-    palette_idxs = [1, 3]
-    key, subkey = random.split(key)
-    run_sub_experiment(
-        d,
-        L,
-        dim,
-        args_loss_fn,
-        args_distance_minimizer_fn,
-        step_sizes,
-        scales,
-        num_stepss,
-        palette_idxs,
-        init_resnet,
-        loss_fn_resnet,
-        square_distance_to_minimizer_resnet,
-        "resnet",
-        subkey,
+        lower_bound_sharpness_minimizers,
+        upper_bound_sharpness_mlp,
     )

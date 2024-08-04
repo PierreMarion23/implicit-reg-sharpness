@@ -24,9 +24,12 @@ batched_linear_network = vmap(linear_network, in_axes=(None, 0))
 
 
 def loss_fn_mlp(params, args):
-    X, y = args
+    X, y, Xtest, ytest = args
     outputs = batched_linear_network(params, X)
-    return jnp.mean((outputs.flatten() - y) ** 2)
+    outputs_test = batched_linear_network(params, Xtest)
+    return jnp.mean((outputs.flatten() - y) ** 2), jnp.mean(
+        (outputs_test.flatten() - ytest) ** 2
+    )
 
 
 @jit
