@@ -18,10 +18,14 @@ pip3 install -r requirements.txt
 
 ## Reproducing the experiments of the paper
 
-Run
+To reproduce all the plots in the paper, run
 
 ```
-python run_experiment.py
+python run_experiment.py linear
+```
+and
+```
+python run_experiment.py nonlinear
 ```
 
-The code takes around 40 minutes to run on a laptop CPU.
+The code takes around 3 hours to run on a laptop CPU.

@@ -27,7 +27,7 @@ batched_linear_network = vmap(linear_network_proj, in_axes=(None, 0, None))
 def loss_fn_resnet(params, args):
     X, y, w = args
     outputs = batched_linear_network(params, X, w)
-    return jnp.mean((outputs.flatten() - y) ** 2)
+    return jnp.mean((outputs.flatten() - y) ** 2), None
 
 
 @jit
